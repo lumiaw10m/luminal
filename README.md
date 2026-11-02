@@ -49,9 +49,13 @@ Your home folder is `Documents\Luminal`, so you can reach your files from outsid
 
 ## Installing
 
-Your phone needs Developer Mode and Device Portal turned on. You build the package yourself for now.
+Your phone needs Developer Mode and Device Portal turned on.
 
-### Building
+Grab the latest build from [Releases](https://github.com/lumiaw10m/luminal/releases). In Device Portal, install `Luminal.cer` as a certificate, then open **Apps** and install the `.appx` along with the three dependency packages.
+
+The first launch takes a little while, because it unpacks Alpine.
+
+### Building it yourself
 
 You'll need a Windows PC with Visual Studio 2019, the UWP workload, the ARM C++ tools, Windows SDK 10.0.19041 and Python 3.
 
@@ -77,8 +81,6 @@ Then build and install it over Wi-Fi:
 $env:LUMIA_IP = '192.168.1.50'
 app\build.ps1 -Install
 ```
-
-The first launch takes a little while, because it unpacks Alpine.
 
 ## How it works
 
