@@ -104,3 +104,7 @@ The engine has its own test suites in `engine/`, which run on the phone through 
 ## Credits
 
 Built on [Alpine Linux](https://alpinelinux.org), [musl](https://musl.libc.org), [Win2D](https://github.com/microsoft/Win2D) and [DejaVu Sans Mono](https://dejavu-fonts.github.io).
+
+## License
+
+Luminal is under the [MIT License](LICENSE). The fonts in `app/Assets` keep [their own license](app/Assets/DejaVu-LICENSE.txt), and the Alpine packages it downloads keep theirs.
