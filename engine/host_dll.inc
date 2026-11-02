@@ -47,6 +47,39 @@ static DWORD WINAPI master_thread(LPVOID unused) {
     }
 }
 
+static void fix_home_names(const wchar_t *dir, int depth) {
+    wchar_t pat[700], from[700], to[700];
+    WIN32_FIND_DATAW e;
+    if (depth > 24 || swprintf(pat, 700, L"%s\\*", dir) < 0) return;
+    HANDLE h = FindFirstFileW(pat, &e);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        if (!wcscmp(e.cFileName, L".") || !wcscmp(e.cFileName, L"..")) continue;
+        wchar_t name[MAX_PATH];
+        wcscpy(name, e.cFileName);
+        int changed = 0;
+        for (wchar_t *c = name; *c; c++)
+            if (*c >= 0xF041 && *c <= 0xF05A) {
+                *c -= 0xF000;
+                changed = 1;
+            }
+        swprintf(from, 700, L"%s\\%s", dir, e.cFileName);
+        swprintf(to, 700, L"%s\\%s", dir, name);
+        if (changed && !MoveFileExW(from, to, 0)) wcscpy(to, from);
+        if ((e.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && !(e.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) fix_home_names(to, depth + 1);
+    } while (FindNextFileW(h, &e));
+    FindClose(h);
+}
+
+static void fix_home_names_once(void) {
+    wchar_t mark[400];
+    swprintf(mark, 400, L"%s\\.home-names", g_root_dos);
+    if (GetFileAttributesW(mark) != INVALID_FILE_ATTRIBUTES) return;
+    fix_home_names(HOME_DIR, 0);
+    HANDLE h = CreateFileW(mark, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
+}
+
 TX_API int __stdcall tx_init(const wchar_t *root, const wchar_t *musl) {
     if (g_prepared) return 0;
     wcsncpy(g_root_dos, root, 299);
@@ -62,6 +95,7 @@ TX_API int __stdcall tx_init(const wchar_t *root, const wchar_t *musl) {
     oa.Attributes = OBJ_INHERIT_;
     NtCreateEvent(&g_ui_event, EVENT_ALL_ACCESS, &oa, 1, FALSE);
     RtlAddVectoredExceptionHandler(1, guest_veh);
+    fix_home_names_once();
     g_prepared = 1;
     return 0;
 }

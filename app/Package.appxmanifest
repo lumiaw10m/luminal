@@ -6,7 +6,7 @@
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   IgnorableNamespaces="uap mp rescap">
 
-  <Identity Name="Luminal" Publisher="CN=lumiaw10m" Version="1.0.1.0" />
+  <Identity Name="Luminal" Publisher="CN=lumiaw10m" Version="1.0.2.0" />
 
   <mp:PhoneIdentity PhoneProductId="98c54985-e211-4842-950e-e2c7eb2c7976" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
 

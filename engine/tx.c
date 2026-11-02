@@ -622,7 +622,7 @@ static u8 *mem_alloc_any(u32 bytes, u32 *first_out) {
     return g_arena + (SIZE_T)f * PG;
 }
 
-static void esc_name(const char *in, wchar_t **pw) {
+static void esc_name(const char *in, wchar_t **pw, int keep_caps) {
     wchar_t *w = *pw;
     const u8 *s = (const u8 *)in;
     while (*s) {
@@ -630,7 +630,7 @@ static void esc_name(const char *in, wchar_t **pw) {
         if (c >= 0xC0 && c < 0xE0 && *s) c = ((c & 0x1F) << 6) | (*s++ & 0x3F);
         else if (c >= 0xE0 && c < 0xF0 && s[0] && s[1]) { c = ((c & 0xF) << 12) | ((s[0] & 0x3F) << 6) | (s[1] & 0x3F); s += 2; }
         else if (c >= 0x80) c = 0xF000 + c;
-        if ((c >= 'A' && c <= 'Z') || c < 0x20 || c == '"' || c == '*' || c == ':' || c == '<' || c == '>' || c == '?' || c == '\\' || c == '|')
+        if ((!keep_caps && c >= 'A' && c <= 'Z') || c < 0x20 || c == '"' || c == '*' || c == ':' || c == '<' || c == '>' || c == '?' || c == '\\' || c == '|')
             c += 0xF000;
         *w++ = (wchar_t)c;
     }
@@ -654,7 +654,8 @@ static int unesc_name(const wchar_t *w, int wlen, char *out) {
 static int nt_path(const char *abs, wchar_t *w) {
     wchar_t *start = w;
     const char *p = abs;
-    if (!strncmp(abs, "/root", 5) && (!abs[5] || abs[5] == '/')) {
+    int home = !strncmp(abs, "/root", 5) && (!abs[5] || abs[5] == '/');
+    if (home) {
         w += swprintf(w, 340, L"\\??\\%s", HOME_DIR);
         p = abs + 5;
     } else {
@@ -668,7 +669,7 @@ static int nt_path(const char *abs, wchar_t *w) {
         while (*p && *p != '/' && n < 255) comp[n++] = *p++;
         comp[n] = 0;
         *w++ = L'\\';
-        esc_name(comp, &w);
+        esc_name(comp, &w, home);
     }
     *w = 0;
     return (int)(w - start) * 2;
