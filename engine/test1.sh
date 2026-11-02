@@ -1,0 +1,61 @@
+#!/bin/sh
+pass=0; fail=0
+t() {
+    if [ "$2" = "$3" ]; then echo "PASS $1"; pass=$((pass+1)); else echo "FAIL $1: wanted [$2] got [$3]"; fail=$((fail+1)); fi
+}
+T=/tmp/txt.$$; mkdir -p $T; cd $T
+
+t uname-m armv7l "$(uname -m)"
+t cat-release 3.24.3 "$(cat /etc/alpine-release)"
+t pipe-simple HELLO "$(echo hello | tr a-z A-Z)"
+t pipe-long 3 "$(printf 'a\nb\nc\n' | sort -r | grep -c .)"
+t pipe-5stage 1 "$(seq 1 100 | grep 7 | sort -n | tail -n 1 | grep -c 97)"
+t subshell 42 "$( (echo 42) )"
+t exit-code 3 "$(sh -c 'exit 3'; echo $?)"
+t and-or yes "$(false || echo yes)"
+t redirect-out file "$(echo file > a; cat a)"
+t redirect-app 2 "$(echo x >> b; echo y >> b; wc -l < b | tr -d ' ')"
+t heredoc doc "$(cat <<EOF
+doc
+EOF
+)"
+t file-mode 755 "$(touch m; chmod 755 m; stat -c %a m)"
+t symlink target "$(echo target > real; ln -s real lnk; cat lnk)"
+t readlink real "$(readlink lnk)"
+t ls-type-link 1 "$(ls -l lnk | grep -c '^l')"
+t case-sensitive 2 "$(echo 1 > Foo; echo 2 > foo; ls | grep -ic '^foo$')"
+t odd-name ok "$(echo ok > 'a:b*c?'; cat 'a:b*c?')"
+t hardlink 2 "$(echo h > hl1; ln hl1 hl2; stat -c %h hl1)"
+t rename new "$(echo new > r1; mv r1 r2; cat r2)"
+t rename-over nn "$(echo old > o1; echo nn > o2; mv o2 o1; cat o1)"
+t rm-open gone "$(exec 3>del; rm del; echo x >&3; exec 3>&-; [ -e del ] && echo there || echo gone)"
+t mkdir-rm 0 "$(mkdir -p d/e/f; rm -r d; [ -e d ]; echo $(($? - 1)))"
+t find 2 "$(mkdir fd; touch fd/1 fd/2; find fd -type f | wc -l | tr -d ' ')"
+t script-exec sh-ran "$(printf '#!/bin/sh\necho sh-ran\n' > s.sh; chmod +x s.sh; ./s.sh)"
+t noexec-denied 126 "$(echo x > n; chmod 644 n; ./n 2>/dev/null; echo $?)"
+t notfound 127 "$(nosuchcmd 2>/dev/null; echo $?)"
+t cwd $T/fd "$(cd fd; pwd)"
+t dotdot $T "$(cd fd/..; pwd)"
+t env-pass val "$(FOO=val sh -c 'echo $FOO')"
+t sigpipe ok "$(yes | head -n 1 >/dev/null; echo ok)"
+t background bg "$(sh -c 'sleep 0; echo bg' & wait)"
+t wait-status 7 "$(sh -c 'exit 7' & wait $!; echo $?)"
+t kill-term 143 "$(sleep 30 & p=$!; kill $p; wait $p; echo $?)"
+t kill-9 137 "$(sleep 30 & p=$!; kill -9 $p; wait $p; echo $?)"
+t trap-handler caught "$(sh -c 'trap "echo caught; exit 0" USR1; kill -USR1 $$; sleep 5')"
+t trap-exit bye "$(sh -c 'trap "echo bye" EXIT')"
+t sleep-time ok "$(s=$(date +%s); sleep 2; e=$(date +%s); d=$((e-s)); [ $d -ge 1 ] && [ $d -le 4 ] && echo ok || echo $d)"
+t big-pipe 2000000 "$(head -c 2000000 /dev/zero | wc -c | tr -d ' ')"
+t big-file 1000000 "$(head -c 1000000 /dev/urandom > bf; wc -c < bf | tr -d ' ')"
+t md5-stable 1 "$(md5sum bf > s1; md5sum bf > s2; cmp -s s1 s2 && echo 1)"
+t gzip-round 1000000 "$(gzip -c bf | gunzip -c | wc -c | tr -d ' ')"
+t tar-round hello "$(mkdir tr; echo hello > tr/f; tar cf t.tar tr; rm -r tr; tar xf t.tar; cat tr/f)"
+t awk 6 "$(printf '1\n2\n3\n' | awk '{s+=$1} END {print s}')"
+t sed foo "$(echo bar | sed s/bar/foo/)"
+t dev-null empty "$(cat /dev/null; echo empty)"
+t tty-check 0 "$([ -t 0 ]; echo $?)"
+t id-root 0 "$(id -u)"
+t ld-musl-runs 0 "$(/lib/ld-musl-armhf.so.1 --version >/dev/null 2>&1; echo 0)"
+t apk-version 1 "$(apk --version 2>/dev/null | grep -c '^apk-tools')"
+cd /; rm -rf $T
+echo "RESULT pass=$pass fail=$fail"

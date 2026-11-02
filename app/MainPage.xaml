@@ -1,0 +1,73 @@
+<Page
+    x:Class="Luminal.MainPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:win2d="using:Microsoft.Graphics.Canvas.UI.Xaml"
+    Background="Black">
+    <Page.Resources>
+        <Style x:Key="KeyButton" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#E0E0E0" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Height" Value="38" />
+            <Setter Property="FontFamily" Value="Segoe UI" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="IsTabStop" Value="False" />
+            <Setter Property="AllowFocusOnInteraction" Value="False" />
+            <Setter Property="IsTapEnabled" Value="True" />
+        </Style>
+    </Page.Resources>
+    <Grid x:Name="Root">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition x:Name="KeyboardSpacer" Height="0" />
+        </Grid.RowDefinitions>
+
+        <StackPanel x:Name="TabStrip" Grid.Row="1" Orientation="Horizontal" Background="#141414" Height="30" />
+        <win2d:CanvasControl x:Name="Canvas" Grid.Row="0" ClearColor="Black"
+                             CreateResources="Canvas_CreateResources" Draw="Canvas_Draw"
+                             ManipulationMode="TranslateY,Scale" ManipulationDelta="Canvas_ManipulationDelta"
+                             ManipulationCompleted="Canvas_ManipulationCompleted"
+                             Tapped="Canvas_Tapped" Holding="Canvas_Holding" RightTapped="Canvas_RightTapped"
+                             PointerPressed="Canvas_PointerPressed" PointerMoved="Canvas_PointerMoved"
+                             PointerReleased="Canvas_PointerReleased" PointerCanceled="Canvas_PointerReleased"
+                             SizeChanged="Canvas_SizeChanged" />
+        <Grid x:Name="KeyRow" Grid.Row="2" Background="#1E1E1E">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Button Grid.Row="0" Grid.Column="0" Style="{StaticResource KeyButton}" Content="ESC" Tag="esc" Click="Key_Click" />
+            <Button Grid.Row="0" Grid.Column="1" Style="{StaticResource KeyButton}" Content="/" Tag="/" Click="Key_Click" />
+            <Button Grid.Row="0" Grid.Column="2" Style="{StaticResource KeyButton}" Content="-" Tag="-" Click="Key_Click" />
+            <Button Grid.Row="0" Grid.Column="3" Style="{StaticResource KeyButton}" Content="HOME" Tag="home" Click="Key_Click" />
+            <Button Grid.Row="0" Grid.Column="4" Style="{StaticResource KeyButton}" Content="&#x2191;" Tag="up" Click="Key_Click" />
+            <Button Grid.Row="0" Grid.Column="5" Style="{StaticResource KeyButton}" Content="END" Tag="end" Click="Key_Click" />
+            <Button Grid.Row="0" Grid.Column="6" Style="{StaticResource KeyButton}" Content="PGUP" Tag="pgup" Click="Key_Click" />
+            <Button Grid.Row="1" Grid.Column="0" Style="{StaticResource KeyButton}" Content="TAB" Tag="tab" Click="Key_Click" />
+            <Button x:Name="CtrlKey" Grid.Row="1" Grid.Column="1" Style="{StaticResource KeyButton}" Content="CTRL" Tag="ctrl" Click="Key_Click" />
+            <Button x:Name="AltKey" Grid.Row="1" Grid.Column="2" Style="{StaticResource KeyButton}" Content="ALT" Tag="alt" Click="Key_Click" />
+            <Button Grid.Row="1" Grid.Column="3" Style="{StaticResource KeyButton}" Content="&#x2190;" Tag="left" Click="Key_Click" />
+            <Button Grid.Row="1" Grid.Column="4" Style="{StaticResource KeyButton}" Content="&#x2193;" Tag="down" Click="Key_Click" />
+            <Button Grid.Row="1" Grid.Column="5" Style="{StaticResource KeyButton}" Content="&#x2192;" Tag="right" Click="Key_Click" />
+            <Button Grid.Row="1" Grid.Column="6" Style="{StaticResource KeyButton}" Content="PGDN" Tag="pgdn" Click="Key_Click" />
+
+            <TextBox x:Name="Input" Grid.Row="0" Grid.Column="0" Width="1" Height="1" MinWidth="0" MinHeight="0" Padding="0"
+                     Opacity="0" BorderThickness="0" IsSpellCheckEnabled="False" IsTextPredictionEnabled="False"
+                     IsColorFontEnabled="False" AcceptsReturn="False" HorizontalAlignment="Left" VerticalAlignment="Top"
+                     TextChanged="Input_TextChanged" KeyDown="Input_KeyDown" />
+        </Grid>
+    </Grid>
+</Page>
