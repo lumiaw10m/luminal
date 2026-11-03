@@ -7,9 +7,62 @@ static volatile int g_req_done;
 static char g_req_cmd[4096];
 static int g_req_has_cmd;
 
+static HANDLE g_host, g_host_req;
+
+static void host_start(OBJECT_ATTRIBUTES *oa) {
+    static wchar_t exe[400], cmd[500];
+    HMODULE m = NULL;
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCWSTR)host_start, &m)) return;
+    DWORD n = GetModuleFileNameW(m, exe, 380);
+    wchar_t *sl = wcsrchr(exe, L'\\');
+    if (!n || !sl) return;
+    wcscpy(sl + 1, L"LuminalHost.exe");
+    if (!NT_OK(NtCreateEvent(&g_host_req, EVENT_ALL_ACCESS, oa, 1, FALSE))) return;
+    g->host_ui = (u32)(ULONG_PTR)g_ui_event;
+    g->host_req = (u32)(ULONG_PTR)g_host_req;
+    g->host_owner = GetCurrentProcessId();
+    wcsncpy(g->host_root, g_root_dos, 299);
+    wcsncpy(g->host_musl, g_musl_dos, 299);
+    swprintf(cmd, 500, L"\"%s\" -H %x", exe, (u32)(ULONG_PTR)g_shm_sec);
+    HANDLE hp = NULL;
+    if (NT_OK(nt_spawn_clear(exe, cmd, NULL, &hp))) g_host = hp;
+}
+
+static int host_spawn(int tty) {
+    if (!g_host) return -1;
+    LARGE_INTEGER z;
+    z.QuadPart = 0;
+    if (NtWaitForSingleObject(g_host, FALSE, &z) == 0) {
+        NtClose(g_host);
+        g_host = NULL;
+        return -1;
+    }
+    g->req_has_cmd = g_req_has_cmd;
+    if (g_req_has_cmd) memcpy(g->req_cmd, g_req_cmd, sizeof(g->req_cmd));
+    g->req_done = 0;
+    g->req_tty = tty;
+    NtSetEvent(g_host_req, NULL);
+    for (int i = 0; i < 2000 && !g->req_done; i++) Sleep(5);
+    int r = g->req_done;
+    g->req_tty = 0;
+    return r == 1 ? 0 : 1;
+}
+
 static void master_spawn(void) {
     static char *argv[4];
     int tty = g_req_tty;
+    int hr = host_spawn(tty);
+    if (hr >= 0) {
+        if (hr) {
+            Tty *t = &g->ttys[tty];
+            t->sess_status = 126 << 8;
+            t->sess_done = 1;
+            NtSetEvent(g_ui_event, NULL);
+        }
+        g_req_done = 1;
+        g_req_tty = 0;
+        return;
+    }
     argv[0] = "/bin/sh";
     if (g_req_has_cmd) {
         argv[1] = "-c";
@@ -95,6 +148,7 @@ TX_API int __stdcall tx_init(const wchar_t *root, const wchar_t *musl) {
     oa.Attributes = OBJ_INHERIT_;
     NtCreateEvent(&g_ui_event, EVENT_ALL_ACCESS, &oa, 1, FALSE);
     RtlAddVectoredExceptionHandler(1, guest_veh);
+    host_start(&oa);
     fix_home_names_once();
     g_prepared = 1;
     return 0;

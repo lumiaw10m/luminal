@@ -20,7 +20,8 @@ Everything here has been run on a Lumia 950 (Snapdragon 808, build 15254):
 
 - **Shells and everyday tools:** `bash`, GNU coreutils, `vim`, `tmux`, `htop`, `less`, `git`, `curl`, `lynx`
 - **Languages:** Python, Node.js with its JIT and worker threads, `npm`, Ruby, PHP, Perl, Lua
-- **Compilers:** `clang` for C and C++, with `make` and `cmake`
+- **Compilers:** `gcc`, `g++` and `clang` for C and C++, with `make` and `cmake`, including static builds
+- **Go:** the full toolchain, so `go build` works on the phone, and static Go binaries run too
 - **Networking:** `ssh` and `sshd`, `scp`, `nginx`, `nmap` (connect scans), `ping`, `ip`, `ifconfig`
 - **Go programs from Alpine:** `fzf`, `rclone`, `gh`, `caddy`, `restic`, `hugo`, `lazygit`
 - **Media:** `ffmpeg`, `yt-dlp`
@@ -41,7 +42,6 @@ Your home folder is `Documents\Luminal`, so you can reach your files from outsid
 ## Known limits
 
 - **Staying alive in the background.** Windows decides how long the app keeps running after you leave it. I've seen anywhere from a minute to about 46 minutes. Keep awake is the dependable option for anything long.
-- **Fixed-address programs can't load.** Programs that must sit at address `0x10000` won't run, because Windows already has that memory. That rules out `gcc`'s own `cc1` (use `clang`, which is also what `cc` should point to) and the Go compiler, along with most prebuilt static Go downloads. Go programs from Alpine's repositories are fine.
 - **Raw network access is limited to `ping`.** So `nmap` can do connect scans, but not SYN or UDP scans or OS detection.
 - **No IPv6 sockets.** Programs fall back to IPv4.
 - **Your home folder is readable by other apps on the phone.** Keep private keys somewhere else, like `/var/lib`, which stays inside the app's own storage.
@@ -94,6 +94,7 @@ A few pieces took more than you'd expect:
 - **Pipes, terminals and sockets** live in memory shared between processes, because each one is a real NT process
 - **Go** needed its system calls moved off its tiny goroutine stacks, since Windows writes its exception frame right below the stack pointer
 - **Winsock** belongs to one master process, which serves everyone else's sockets
+- **Fixed-address programs**, like `gcc`'s `cc1` and static Go binaries, need the bottom of memory, where Windows normally puts its own things. So programs start from a small helper, `LuminalHost.exe`, that's created with that range kept free, and every process forks from it
 
 The app itself (`app/`) is a C# UWP project with its own terminal emulator, drawn with Win2D.
 

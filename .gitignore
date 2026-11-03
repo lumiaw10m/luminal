@@ -8,6 +8,7 @@ app/out/
 engine/tx.exe
 
 app/Payload/TxEngine.dll
+app/Payload/LuminalHost.exe
 app/Payload/root.tar
 engine/*.tar
 

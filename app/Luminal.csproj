@@ -53,6 +53,7 @@
     <Content Include="Assets\*.ttf" />
     <Content Include="Assets\DejaVu-LICENSE.txt" />
     <Content Include="Payload\TxEngine.dll"><Link>TxEngine.dll</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Payload\LuminalHost.exe"><Link>LuminalHost.exe</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Payload\musl.so"><Link>musl.so</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Payload\root.tar"><Link>root.tar</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
   </ItemGroup>

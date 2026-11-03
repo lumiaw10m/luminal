@@ -320,10 +320,15 @@ typedef struct {
     u8 pipebuf[MAX_PIPE][PIPE_SZ];
     Sock socks[MAX_SOCK];
     u8 sock_rx[MAX_SOCK][SOCK_RX], sock_tx[MAX_SOCK][SOCK_TX];
+    u32 host_events[MAX_PROC], host_ui, host_req, host_owner;
+    wchar_t host_root[300], host_musl[300];
+    volatile int req_tty, req_done, req_has_cmd;
+    char req_cmd[4096];
 } Shm;
 
 static Shm *g;
 static HANDLE g_events[MAX_PROC];
+static HANDLE g_shm_sec;
 static int g_self;
 static Proc *me;
 
@@ -356,6 +361,46 @@ static void trace(const char *fmt, ...) {
     eof.HighPart = -1;
     eof.LowPart = 0xFFFFFFFF;
     NtWriteFile(g_trace_h, NULL, NULL, NULL, &io, b, n, &eof, NULL);
+}
+
+typedef struct { ULONG_PTR attr; SIZE_T size; ULONG_PTR value; SIZE_T *ret; } PsAttr;
+NTF(RtlCreateProcessParametersEx)(PVOID *, UNICODE_STRING *, UNICODE_STRING *, UNICODE_STRING *, UNICODE_STRING *, PVOID, UNICODE_STRING *, UNICODE_STRING *, UNICODE_STRING *, UNICODE_STRING *, ULONG);
+
+static NTSTATUS nt_spawn_clear(const wchar_t *image, const wchar_t *cmdline, HANDLE out, HANDLE *hp) {
+    static wchar_t nt[600];
+    static struct { PVOID addr; SIZE_T size; } reserve = { (PVOID)0x10000, 0x10000000 - 0x10000 };
+    UNICODE_STRING img, ntimg, cl;
+    swprintf(nt, 600, L"\\??\\%s", image);
+    img.Buffer = (PWSTR)image;
+    img.Length = img.MaximumLength = (USHORT)(wcslen(image) * 2);
+    ntimg.Buffer = nt;
+    ntimg.Length = ntimg.MaximumLength = (USHORT)(wcslen(nt) * 2);
+    cl.Buffer = (PWSTR)cmdline;
+    cl.Length = cl.MaximumLength = (USHORT)(wcslen(cmdline) * 2);
+    u8 *pp = NULL;
+    NTSTATUS st = RtlCreateProcessParametersEx((PVOID *)&pp, &img, NULL, NULL, &cl, NULL, NULL, NULL, NULL, NULL, 1);
+    if (!NT_OK(st)) return st;
+    if (out) {
+        *(HANDLE *)(pp + 0x1C) = out;
+        *(HANDLE *)(pp + 0x20) = out;
+        *(ULONG *)(pp + 0x68) |= STARTF_USESTDHANDLES;
+    }
+    struct { SIZE_T total; PsAttr a[2]; } al;
+    memset(&al, 0, sizeof(al));
+    al.total = sizeof(al);
+    al.a[0].attr = 0x20005;
+    al.a[0].size = ntimg.Length;
+    al.a[0].value = (ULONG_PTR)ntimg.Buffer;
+    al.a[1].attr = 0x20007;
+    al.a[1].size = sizeof(reserve);
+    al.a[1].value = (ULONG_PTR)&reserve;
+    __declspec(align(8)) char create_info[72];
+    memset(create_info, 0, sizeof(create_info));
+    *(ULONG *)create_info = sizeof(create_info);
+    HANDLE ht = NULL;
+    st = NtCreateUserProcess(hp, &ht, MAXIMUM_ALLOWED, MAXIMUM_ALLOWED, NULL, NULL, 0x4, 0, pp, create_info, &al);
+    if (NT_OK(st)) NtClose(ht);
+    return st;
 }
 
 static NTSTATUS nt_fork(HANDLE *hp, HANDLE *ht) {
@@ -514,11 +559,23 @@ static void arena_init(void) {
 
 static u32 g_fixed_lo, g_fixed_hi;
 
-#define LOW_END 0x06000000u
+#define LOW_END 0x10000000u
 static struct { PVOID base; SIZE_T size; } g_low[32];
 static int g_low_n;
 
+static int low_is_clear(void) {
+    struct { PVOID base, alloc; ULONG aprot; SIZE_T size; ULONG state, prot, type; } mi;
+    if (!NT_OK(NtQueryVirtualMemory(SELF, (PVOID)0x10000, 0, &mi, sizeof(mi), NULL))) return 0;
+    return mi.state == MEM_RESERVE && (u32)(ULONG_PTR)mi.alloc == 0x10000 && (u32)(ULONG_PTR)mi.base + (u32)mi.size >= LOW_END;
+}
+
 static void low_reserve(void) {
+    if (!g_low_n && low_is_clear()) {
+        g_low[0].base = (PVOID)0x10000;
+        g_low[0].size = LOW_END - 0x10000;
+        g_low_n = 1;
+        return;
+    }
     for (u32 a = 0x10000; a < LOW_END && g_low_n < 32;) {
         struct { PVOID base, alloc; ULONG aprot; SIZE_T size; ULONG state, prot, type; } mi;
         if (!NT_OK(NtQueryVirtualMemory(SELF, (PVOID)(ULONG_PTR)a, 0, &mi, sizeof(mi), NULL))) break;
@@ -603,6 +660,25 @@ static int mem_commit(u32 first, u32 pages) {
         return -ENOMEM;
     }
     memset(g_page_used + first, 1, pages);
+    return 0;
+}
+
+static void mem_reserve_only(u32 first, u32 pages) {
+    mem_decommit(first, pages);
+    memset(g_page_used + first, 2, pages);
+}
+
+static int mem_commit_lazy(u32 first, u32 pages) {
+    for (u32 i = first, end = first + pages; i < end;) {
+        if (g_page_used[i] != 2) { i++; continue; }
+        u32 j = i;
+        while (j < end && g_page_used[j] == 2) j++;
+        PVOID p = g_arena + (SIZE_T)i * PG;
+        SIZE_T s = (SIZE_T)(j - i) * PG;
+        if (!NT_OK(NtAllocateVirtualMemory(SELF, &p, 0, &s, MEM_COMMIT, PAGE_READWRITE))) return -ENOMEM;
+        memset(g_page_used + i, 1, j - i);
+        i = j;
+    }
     return 0;
 }
 
@@ -2714,6 +2790,8 @@ static void reset_for_exec(void) {
         s = 0;
         NtFreeVirtualMemory(SELF, &p, &s, MEM_RELEASE);
         g_fixed_lo = g_fixed_hi = 0;
+        low_release();
+        low_reserve();
     }
 }
 
@@ -2722,7 +2800,7 @@ static int sets_r7_nearby(const u8 *t, u32 o) {
         u32 at = o - back;
         u16 p1 = *(const u16 *)(t + at);
         if ((p1 >> 8) == 0x27 && back == 2) return 1;
-        if ((p1 & 0xFF87) == 0x4687) return 1;
+        if ((p1 & 0xFF87) == 0x4687 || ((p1 & 0xFF87) == 0x4607 && back == 2)) return 1;
         if ((p1 >> 8) == 0x4F) {
             u32 lit = ((at + 4) & ~3u) + (p1 & 0xFF) * 4;
             return *(const u32 *)(t + lit) >= 0xF0000 && *(const u32 *)(t + lit) <= 0xF0010;
@@ -2733,7 +2811,7 @@ static int sets_r7_nearby(const u8 *t, u32 o) {
                 u32 lit = ((at - 2 + 4) & ~3u) + (p1 & 0xFFF);
                 return *(const u32 *)(t + lit) >= 0xF0000 && *(const u32 *)(t + lit) <= 0xF0010;
             }
-            if (((p2 & 0xFBF0) == 0xF2C0 || (p2 & 0xFBF0) == 0xF240) && (p1 & 0x8F00) == 0x0700) return 1;
+            if (((p2 & 0xFBF0) == 0xF2C0 || (p2 & 0xFBF0) == 0xF240 || (p2 & 0xFBEF) == 0xF04F) && (p1 & 0x8F00) == 0x0700) return 1;
         }
         if ((p1 >> 11) != 4) return 0;
     }
@@ -2919,7 +2997,6 @@ static void __cdecl exec_finish(void) {
         if (ph[i].type == 3) has_interp = 1;
         if (ph[i].type == 6) phdr_vaddr = ph[i].vaddr;
     }
-    if (!has_interp) fatal_exec("static binaries aren't supported yet");
     span = (span + PG - 1) & ~(PG - 1);
     u32 first;
     u8 *base, *stub_area = NULL;
@@ -2929,6 +3006,21 @@ static void __cdecl exec_finish(void) {
         for (int i = 0; i < nph; i++)
             if (ph[i].type == 1 && ph[i].vaddr < lo) lo = ph[i].vaddr;
         lo &= ~(PG - 1);
+        if (lo < 0x10000 || span > LOW_END || span <= lo) fatal_exec("its fixed load address is outside the range Luminal keeps free");
+        u32 gap = 0, gap_end = 0;
+        for (int i = 0; i < nph; i++) {
+            if (ph[i].type != 1) continue;
+            u32 e = (ph[i].vaddr + ph[i].memsz + PG - 1) & ~(PG - 1), next = span;
+            for (int j = 0; j < nph; j++)
+                if (ph[j].type == 1 && (ph[j].vaddr & ~(PG - 1)) >= e && (ph[j].vaddr & ~(PG - 1)) < next) next = ph[j].vaddr & ~(PG - 1);
+            if (next > e && next - e > gap_end - gap && e < span) { gap = e; gap_end = next; }
+        }
+        if (gap_end - gap < 0x2000) {
+            gap = span;
+            gap_end = span + 0x10000 <= LOW_END ? span + 0x10000 : span;
+            span = gap_end;
+        }
+        if (gap_end - gap > 0x10000) gap_end = gap + 0x10000;
         low_release();
         PVOID want = (PVOID)(ULONG_PTR)lo;
         SIZE_T sz = span - lo;
@@ -2945,7 +3037,12 @@ static void __cdecl exec_finish(void) {
         }
         g_fixed_lo = lo;
         g_fixed_hi = span;
+        low_reserve();
         base = NULL;
+        if (gap_end > gap) {
+            stub_area = (u8 *)(ULONG_PTR)gap;
+            stub_room = gap_end - gap;
+        }
     } else {
 
         stub_room = 0x10000;
@@ -2970,8 +3067,8 @@ static void __cdecl exec_finish(void) {
     }
     if (stub_area) mem_protect(stub_area, stub_room, 1 | 4);
     NtClose(h);
-    u8 *ibase = musl_map();
-    if (!ibase) fatal_exec("no memory for musl");
+    u8 *ibase = NULL;
+    if (has_interp && !(ibase = musl_map())) fatal_exec("no memory for musl");
 
     const u32 stack_sz = 8 << 20;
     u8 *stack = mem_alloc_any(stack_sz, NULL);
@@ -3050,7 +3147,7 @@ static void __cdecl exec_finish(void) {
     c->R0 = c->R1 = c->R2 = c->R3 = c->R4 = c->R5 = c->R6 = c->R7 = c->R8 = c->R9 = c->R10 = c->R11 = c->R12 = 0;
     c->Lr = 0;
     c->Sp = (u32)(ULONG_PTR)s;
-    u32 entry = (u32)(ULONG_PTR)ibase + g_musl_entry;
+    u32 entry = has_interp ? (u32)(ULONG_PTR)ibase + g_musl_entry : (u32)(ULONG_PTR)base + eh->entry;
     c->Pc = entry;
     c->Cpsr = (c->Cpsr & ~0x0600FC00u) | ((entry & 1) ? 0x20 : 0);
     trace("[%d] exec %s base=%p musl=%p sp=%08x pc=%08x\n", me->pid, g_exec_path, base, ibase, c->Sp, c->Pc);
@@ -3109,9 +3206,14 @@ static int sys_mmap2(u32 addr, u32 len, int prot, int flags, int fd, u32 pgoff, 
         first = arena_find(pages);
         if (first == 0xFFFFFFFF) return -ENOMEM;
     }
+    u8 *p = g_arena + (SIZE_T)first * PG;
+    if ((flags & 0x20) && !prot) {
+        mem_reserve_only(first, pages);
+        *out = (u32)(ULONG_PTR)p;
+        return 0;
+    }
     int r = mem_commit(first, pages);
     if (r) return r;
-    u8 *p = g_arena + (SIZE_T)first * PG;
     if (g_trace && !(flags & 0x20) && fd >= 0 && fd < MAX_FD) trace("[%d] map %s off=%x at %p len=%x prot=%x\n", me->pid, g_fdpath[fd], pgoff * PG, p, len, prot);
     if (!(flags & 0x20)) {
         if (fd < 0 || fd >= MAX_FD || g_fd[fd].type != F_FILE) {
@@ -3173,6 +3275,7 @@ static int sys_mprotect(u32 addr, u32 len, int prot) {
     u32 pages = (len + PG - 1) / PG;
     if (!pages) return 0;
     if (!in_arena(addr, pages * PG) && !in_fixed(addr, pages * PG)) return -ENOMEM;
+    if (prot && in_arena(addr, pages * PG) && mem_commit_lazy((addr - (u32)(ULONG_PTR)g_arena) / PG, pages)) return -ENOMEM;
     mem_protect((void *)(ULONG_PTR)addr, (SIZE_T)pages * PG, prot);
     return 0;
 }
@@ -3658,6 +3761,20 @@ static int do_syscall(CONTEXT *c, int *advance) {
             NTSTATUS st = NtSetInformationFile(g_fd[a0].h, &io, &z, sizeof(z), 20);
             return NT_OK(st) ? 0 : -errno_of(st);
         }
+        case 352: {
+            if (a0 >= MAX_FD || !g_fd[a0].type) return -EBADF;
+            if (g_fd[a0].type != F_FILE) return -19;
+            if (a1 & ~1u) return -EOPNOTSUPP_;
+            IO_STATUS_BLOCK io;
+            FILE_STD std;
+            if (!NT_OK(NtQueryInformationFile(g_fd[a0].h, &io, &std, sizeof(std), 5))) return -EBADF;
+            u64 want = ((u64)a3 << 32 | a2) + ((u64)a5 << 32 | a4);
+            if ((a1 & 1) || want <= (u64)std.eof.QuadPart) return 0;
+            LARGE_INTEGER z;
+            z.QuadPart = (i64)want;
+            NTSTATUS st = NtSetInformationFile(g_fd[a0].h, &io, &z, sizeof(z), 20);
+            return NT_OK(st) ? 0 : -errno_of(st);
+        }
         case 118: case 148: {
             if (a0 >= MAX_FD || !g_fd[a0].type) return -EBADF;
             if (g_fd[a0].type == F_FILE) {
@@ -3671,14 +3788,14 @@ static int do_syscall(CONTEXT *c, int *advance) {
             if (a2 != 4 || !in_arena(a0, a1) || (a0 & (PG - 1))) return 0;
             u32 first = (a0 - (u32)(ULONG_PTR)g_arena) / PG, pages = (a1 + PG - 1) / PG;
             for (u32 i = 0; i < pages;) {
-                if (!g_page_used[first + i]) { i++; continue; }
+                if (g_page_used[first + i] != 1) { i++; continue; }
                 struct { PVOID base, alloc; ULONG aprot; SIZE_T size; ULONG state, prot, type; } mi;
                 u8 *at = g_arena + (SIZE_T)(first + i) * PG;
                 if (!NT_OK(NtQueryVirtualMemory(SELF, at, 0, &mi, sizeof(mi), NULL))) break;
                 u32 run = (u32)(((u8 *)mi.base + mi.size - at) / PG);
                 if (run > pages - i) run = pages - i;
                 for (u32 k = 1; k < run; k++)
-                    if (!g_page_used[first + i + k]) { run = k; break; }
+                    if (g_page_used[first + i + k] != 1) { run = k; break; }
                 PVOID q = at;
                 SIZE_T s = (SIZE_T)run * PG;
                 NtFreeVirtualMemory(SELF, &q, &s, MEM_DECOMMIT);
@@ -4394,13 +4511,28 @@ static int shm_init(void) {
     st = NtMapViewOfSection(sec, SELF, &base, 0, 0, NULL, &view, 1  , 0, PAGE_READWRITE);
     if (!NT_OK(st)) { printf("tx: map %08x\n", st); return -1; }
     g = base;
+    g_shm_sec = sec;
     memset(g, 0, sizeof(*g));
     g->next_pid = 2;
     tty_init();
     for (int i = 0; i < MAX_PROC; i++) {
         st = NtCreateEvent(&g_events[i], EVENT_ALL_ACCESS, &oa, 1  , FALSE);
         if (!NT_OK(st)) { printf("tx: event %08x\n", st); return -1; }
+        g->host_events[i] = (u32)(ULONG_PTR)g_events[i];
     }
+    return 0;
+}
+
+static int shm_attach(HANDLE sec) {
+    PVOID base = NULL;
+    SIZE_T view = 0;
+    if (!NT_OK(NtMapViewOfSection(sec, SELF, &base, 0, 0, NULL, &view, 1, 0, PAGE_READWRITE))) return -1;
+    g = base;
+    g_shm_sec = sec;
+    for (int i = 0; i < MAX_PROC; i++) g_events[i] = (HANDLE)(ULONG_PTR)g->host_events[i];
+    g_ui_event = (HANDLE)(ULONG_PTR)g->host_ui;
+    wcsncpy(g_root_dos, g->host_root, 299);
+    wcsncpy(g_musl_dos, g->host_musl, 299);
     return 0;
 }
 
@@ -4788,9 +4920,86 @@ static int import_tar(const wchar_t *path) {
 #ifdef TX_DLL
 #include "host_dll.inc"
 #else
+static int host_serve(HANDLE sec) {
+    static char *argv[4];
+    static char cmd[4096];
+    if (shm_attach(sec)) return 1;
+    low_reserve();
+    if (musl_prepare()) return 1;
+    arena_init();
+    if (!g_arena) return 1;
+    RtlAddVectoredExceptionHandler(1, guest_veh);
+    HANDLE w[2];
+    w[0] = (HANDLE)(ULONG_PTR)g->host_req;
+    w[1] = OpenProcess(SYNCHRONIZE, FALSE, g->host_owner);
+    if (!w[1]) return 1;
+    for (;;) {
+        DWORD r = WaitForMultipleObjects(2, w, FALSE, 1000);
+        if (r == WAIT_OBJECT_0 + 1) return 0;
+        int tty = g->req_tty;
+        if (!tty || g->req_done) continue;
+        argv[0] = "/bin/sh";
+        if (g->req_has_cmd) {
+            memcpy(cmd, g->req_cmd, sizeof(cmd));
+            cmd[sizeof(cmd) - 1] = 0;
+            argv[1] = "-c";
+            argv[2] = cmd;
+            argv[3] = NULL;
+        } else {
+            argv[1] = "-l";
+            argv[2] = NULL;
+        }
+        g->req_done = spawn_session(argv, tty) ? 2 : 1;
+        NtSetEvent(g_ui_event, NULL);
+    }
+}
+
+static int relaunch_clear(void) {
+    static wchar_t self[400], cmd[8192];
+    GetModuleFileNameW(NULL, self, 400);
+    const wchar_t *rest = GetCommandLineW();
+    if (*rest == L'"') {
+        rest++;
+        while (*rest && *rest != L'"') rest++;
+        if (*rest) rest++;
+    } else
+        while (*rest && *rest != L' ' && *rest != L'\t') rest++;
+    if (swprintf(cmd, 8192, L"\"%s\" -R%s", self, rest) < 0) return -1;
+    HANDLE job = CreateJobObjectW(NULL, NULL);
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION li;
+    memset(&li, 0, sizeof(li));
+    li.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if (job) SetInformationJobObject(job, JobObjectExtendedLimitInformation, &li, sizeof(li));
+    HANDLE hp = NULL, rd = NULL, wr = NULL;
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
+    if (!CreatePipe(&rd, &wr, &sa, 0)) return -1;
+    SetHandleInformation(rd, HANDLE_FLAG_INHERIT, 0);
+    if (!NT_OK(nt_spawn_clear(self, cmd, wr, &hp))) {
+        NtClose(rd);
+        NtClose(wr);
+        return -1;
+    }
+    NtClose(wr);
+    if (job) AssignProcessToJobObject(job, hp);
+    HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
+    static u8 buf[4096];
+    DWORD n, w;
+    while (ReadFile(rd, buf, sizeof(buf), &n, NULL) && n) WriteFile(out, buf, n, &w, NULL);
+    NtWaitForSingleObject(hp, FALSE, NULL);
+    DWORD code = 1;
+    GetExitCodeProcess(hp, &code);
+    return (int)code;
+}
+
 int main(int argc, char **argv) {
     int a = 1;
     setvbuf(stdout, NULL, _IONBF, 0);
+    if (a + 1 < argc && !strcmp(argv[a], "-H")) return host_serve((HANDLE)(ULONG_PTR)strtoul(argv[a + 1], NULL, 16));
+    if (a < argc && !strcmp(argv[a], "-R")) a++;
+    else if (!low_is_clear()) {
+        int r = relaunch_clear();
+        if (r >= 0) return r;
+    }
     if (a < argc && !strcmp(argv[a], "-t")) { g_trace = 1; a++; }
     if (a >= argc) {
         printf("usage: tx [-t] import <tar> | -c <command> | -L <port>\n");

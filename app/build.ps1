@@ -17,6 +17,8 @@ call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Professional\VC\Auxili
 cd /d "$engine"
 cl /nologo /O2 /MT /LD /W3 /wd4133 /wd4047 /wd4024 /wd4312 /wd4311 /wd4302 /DTX_DLL /D_ARM_WINAPI_PARTITION_DESKTOP_SDK_AVAILABLE=1 /D_CRT_SECURE_NO_WARNINGS /D_WINSOCK_DEPRECATED_NO_WARNINGS tx.c /Fo:txdll.obj /Fe:"$app\Payload\TxEngine.dll" /link /APPCONTAINER /OPT:REF kernel32.lib ntdll.lib ws2_32.lib || exit /b 1
 del txdll.obj "$app\Payload\TxEngine.exp" "$app\Payload\TxEngine.lib"
+cl /nologo /O2 /MT /W3 /wd4133 /wd4047 /wd4024 /wd4312 /wd4311 /wd4302 /D_ARM_WINAPI_PARTITION_DESKTOP_SDK_AVAILABLE=1 /D_CRT_SECURE_NO_WARNINGS /D_WINSOCK_DEPRECATED_NO_WARNINGS tx.c /Fo:txhost.obj /Fe:"$app\Payload\LuminalHost.exe" /link /SUBSYSTEM:CONSOLE,6.02 /APPCONTAINER /BASE:0x72000000 kernel32.lib ntdll.lib ws2_32.lib || exit /b 1
+del txhost.obj
 subst T: /d >nul 2>&1
 subst T: "$(Split-Path $app)" || exit /b 1
 cd /d T:\app
