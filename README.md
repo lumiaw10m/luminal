@@ -55,6 +55,16 @@ Grab the latest build from [Releases](https://github.com/lumiaw10m/luminal/relea
 
 The first launch takes a little while, because it unpacks Alpine.
 
+### Claude Code
+
+To install Claude Code, run this in Luminal:
+
+```sh
+wget -qO- https://raw.githubusercontent.com/lumiaw10m/luminal/main/scripts/install-claude-code.sh | sh
+```
+
+It installs version 2.1.112, the last one that runs on 32-bit ARM, with automatic updates turned off. Your sign-in is kept in `/var/lib/claude`, not in the home folder that other apps can read. When it's done, open a new tab and run `claude`.
+
 ### Building it yourself
 
 You'll need a Windows PC with Visual Studio 2019, the UWP workload, the ARM C++ tools, Windows SDK 10.0.19041 and Python 3.
