@@ -39,9 +39,26 @@ Most of Alpine's armv7 packages should just work. If one doesn't, that's a bug w
 
 Your home folder is `Documents\Luminal`, so you can reach your files from outside the app too.
 
+## Talking to the phone
+
+The `luminal` command lets scripts reach the phone itself:
+
+```sh
+luminal open https://example.com     # open a link in Edge, Maps and so on
+luminal copy "some text"             # or pipe into it: ls | luminal copy
+luminal paste
+luminal notify "Build finished" "make exited with $?"
+luminal battery                      # 86% discharging
+luminal vibrate 300
+```
+
+So `make; luminal notify Done` tells you when a long build is over, even from another app.
+
+While Luminal is in the background it plays silence, which is how music apps stay awake, so your sessions keep running. It's silent, but it counts as audio, so pausing media from the volume panel can stop it.
+
 ## Known limits
 
-- **Staying alive in the background.** Windows decides how long the app keeps running after you leave it. I've seen anywhere from a minute to about 46 minutes. Keep awake is the dependable option for anything long.
+- **Staying alive in the background.** Windows still decides in the end. The silent audio has kept sessions going behind other apps, but if Windows closes Luminal, everything running in it stops too. Keep awake is the dependable option for anything long.
 - **Raw network access is limited to `ping`.** So `nmap` can do connect scans, but not SYN or UDP scans or OS detection.
 - **No IPv6 sockets.** Programs fall back to IPv4.
 - **Your home folder is readable by other apps on the phone.** Keep private keys somewhere else, like `/var/lib`, which stays inside the app's own storage.

@@ -10,6 +10,8 @@ using Microsoft.Graphics.Canvas.UI.Xaml;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.ApplicationModel.ExtendedExecution;
 using Windows.Foundation;
+using Windows.Media.Core;
+using Windows.Media.Playback;
 using Windows.Storage;
 using Windows.System;
 using Windows.UI;
@@ -176,7 +178,14 @@ namespace Luminal
 
         async Task StartBackground()
         {
-            byte[] c = Encoding.UTF8.GetBytes("[ -x /etc/luminal/autostart ] && exec /etc/luminal/autostart\0");
+            string setup = "";
+            try
+            {
+                File.Copy(Path.Combine(Windows.ApplicationModel.Package.Current.InstalledLocation.Path, "luminal"), Path.Combine(Engine.Root, "root", "tmp", ".luminal-new"), true);
+                setup = "install -m 755 /tmp/.luminal-new /usr/bin/luminal; rm -f /tmp/.luminal-new; ";
+            }
+            catch (Exception) { }
+            byte[] c = Encoding.UTF8.GetBytes(setup + "[ -x /etc/luminal/autostart ] && exec /etc/luminal/autostart\0");
             int id = await Task.Run(() => Engine.tx_session_open(c, 24, 80));
             if (id > 0) _backgroundId = id;
         }
@@ -197,7 +206,46 @@ namespace Luminal
             await OpenTab(cmd);
             if (_launchArgs != "test") await StartBackground();
             RequestBackgroundTime();
+            Bridge.Start(Dispatcher);
+            Application.Current.EnteredBackground += (s, a) => StartSilence();
+            Application.Current.LeavingBackground += (s, a) => StopSilence();
             if (_launchArgs == "auto") { var t = AutoType(); }
+        }
+
+        MediaPlayer _silence;
+
+        void StartSilence()
+        {
+            string log = Path.Combine(ApplicationData.Current.LocalFolder.Path, "ext.log");
+            try
+            {
+                if (_silence == null)
+                {
+                    const int rate = 8000, seconds = 2, bytes = rate * seconds * 2;
+                    var wav = new byte[44 + bytes];
+                    var w = new BinaryWriter(new MemoryStream(wav));
+                    w.Write(Encoding.ASCII.GetBytes("RIFF")); w.Write(36 + bytes); w.Write(Encoding.ASCII.GetBytes("WAVEfmt "));
+                    w.Write(16); w.Write((short)1); w.Write((short)1); w.Write(rate); w.Write(rate * 2); w.Write((short)2); w.Write((short)16);
+                    w.Write(Encoding.ASCII.GetBytes("data")); w.Write(bytes);
+                    var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+                    var dw = new Windows.Storage.Streams.DataWriter(stream);
+                    dw.WriteBytes(wav);
+                    dw.StoreAsync().AsTask().Wait();
+                    dw.DetachStream();
+                    stream.Seek(0);
+                    _silence = new MediaPlayer { IsLoopingEnabled = true, AudioCategory = MediaPlayerAudioCategory.Media };
+                    _silence.CommandManager.IsEnabled = false;
+                    _silence.Source = MediaSource.CreateFromStream(stream, "audio/wav");
+                }
+                _silence.Play();
+                File.AppendAllText(log, DateTime.Now + " silence playing\r\n");
+            }
+            catch (Exception e) { File.AppendAllText(log, DateTime.Now + " silence failed " + e.Message + "\r\n"); }
+        }
+
+        void StopSilence()
+        {
+            try { _silence?.Pause(); } catch (Exception) { }
         }
 
         async Task OpenTab(string cmd)

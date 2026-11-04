@@ -1,0 +1,50 @@
+#!/bin/sh
+
+dir=/var/lib/luminal/req
+
+usage() {
+    cat >&2 <<'EOF'
+Usage: luminal COMMAND [ARGS]
+
+  open URL            open a link in its app, like Edge or Maps
+  copy [TEXT]         copy TEXT, or standard input, to the clipboard
+  paste               print the clipboard
+  notify TITLE [TEXT] show a notification
+  battery             print the battery level and whether it's charging
+  vibrate [MS]        vibrate for MS milliseconds, 300 by default
+EOF
+    exit 2
+}
+
+ask() {
+    mkdir -p "$dir"
+    id=$$-$RANDOM
+    { echo "$1"; cat; } > "$dir/$id.tmp" && mv "$dir/$id.tmp" "$dir/$id.req"
+    i=0
+    while [ ! -e "$dir/$id.res" ]; do
+        i=$((i + 1))
+        if [ $i -gt 150 ]; then
+            rm -f "$dir/$id.req"
+            echo "luminal: the app didn't answer. Is Luminal open?" >&2
+            exit 1
+        fi
+        sleep 0.1
+    done
+    status=$(head -n 1 "$dir/$id.res")
+    tail -n +2 "$dir/$id.res"
+    rm -f "$dir/$id.res"
+    [ "$status" = ok ] || exit 1
+}
+
+[ $# -gt 0 ] || usage
+cmd=$1
+shift
+case "$cmd" in
+    open) [ $# -eq 1 ] || usage; printf '%s' "$1" | ask open ;;
+    copy) if [ $# -gt 0 ]; then printf '%s' "$*" | ask copy; else ask copy; fi ;;
+    paste) ask paste < /dev/null ;;
+    notify) [ $# -ge 1 ] || usage; printf '%s\n%s' "$1" "${2:-}" | ask notify ;;
+    battery) ask battery < /dev/null ;;
+    vibrate) printf '%s' "${1:-300}" | ask vibrate ;;
+    *) usage ;;
+esac

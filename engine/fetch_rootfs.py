@@ -9,7 +9,7 @@ import urllib.request
 VERSION = "3.24.3"
 BASE = f"https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/armv7/alpine-minirootfs-{VERSION}-armv7.tar.gz"
 OVERLAY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "rootfs")
-EXECUTABLE = ("usr/local/bin/", "etc/luminal/")
+EXECUTABLE = ("usr/bin/", "usr/local/bin/", "etc/luminal/")
 
 out = sys.argv[1]
 raw = urllib.request.urlopen(BASE).read()

@@ -41,6 +41,7 @@
   <ItemGroup>
     <Compile Include="App.xaml.cs"><DependentUpon>App.xaml</DependentUpon></Compile>
     <Compile Include="MainPage.xaml.cs"><DependentUpon>MainPage.xaml</DependentUpon></Compile>
+    <Compile Include="Bridge.cs" />
     <Compile Include="Engine.cs" />
     <Compile Include="Vt.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
@@ -54,6 +55,7 @@
     <Content Include="Assets\DejaVu-LICENSE.txt" />
     <Content Include="Payload\TxEngine.dll"><Link>TxEngine.dll</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Payload\LuminalHost.exe"><Link>LuminalHost.exe</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="..\rootfs\usr\bin\luminal"><Link>luminal</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Payload\musl.so"><Link>musl.so</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="Payload\root.tar"><Link>root.tar</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
   </ItemGroup>
